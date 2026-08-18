@@ -208,14 +208,6 @@ def config():
 UPLOADS_DIR = Path(HERE) / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Copy default reference audio into uploads if available
-_DEFAULT_REF_SRC = Path(HERE).parent / "src" / "speech_to_speech" / "TTS" / "ref_audio.wav"
-if _DEFAULT_REF_SRC.is_file() and not (UPLOADS_DIR / "ref_audio.wav").is_file():
-    try:
-        shutil.copy(_DEFAULT_REF_SRC, UPLOADS_DIR / "ref_audio.wav")
-    except Exception as e:
-        logger.warning("Could not copy default ref_audio.wav: %s", e)
-
 # Auto-copy reference sounds from assets/reference_sound/
 _ASSETS_REF_DIR = Path(HERE).parent / "assets" / "reference_sound"
 if _ASSETS_REF_DIR.is_dir():
