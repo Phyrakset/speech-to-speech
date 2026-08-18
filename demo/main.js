@@ -1711,6 +1711,14 @@ const setupController = new SetupController({
   onPipelineReady: async () => {
     await fetchConfig();
     console.log("[main] Pipeline ready. Direct URL is now:", pinnedUrl || settings.directUrl);
+    // Automatically start voice conversation immediately
+    if (currentState === "idle" || currentState === "error") {
+      try {
+        await doStart();
+      } catch (err) {
+        await handleStartError(err);
+      }
+    }
   },
   onPipelineStopped: async () => {
     await teardown();
