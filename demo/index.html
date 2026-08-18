@@ -711,9 +711,21 @@
                 2. Language Model (LLM)
               </span>
               <select id="setup-llm-provider">
-                <option value="chat-completions" selected>Chat Completions (OpenAI / Cerebras)</option>
-                <option value="responses-api">Responses API</option>
-                <option value="transformers">Transformers (Local)</option>
+                <optgroup label="Google Gemini">
+                  <option value="gemini-flash" selected>Google Gemini (Gemini 2.5 Flash · Fast)</option>
+                  <option value="gemini-pro">Google Gemini (Gemini 2.0 Pro)</option>
+                </optgroup>
+                <optgroup label="OpenAI">
+                  <option value="openai-mini">OpenAI (GPT-4o Mini)</option>
+                  <option value="openai-gpt4o">OpenAI (GPT-4o)</option>
+                </optgroup>
+                <optgroup label="Groq & DeepSeek">
+                  <option value="groq-llama">Groq (Llama 3.3 70B · Fast)</option>
+                  <option value="deepseek-chat">DeepSeek (DeepSeek-V3)</option>
+                </optgroup>
+                <optgroup label="Local Models">
+                  <option value="transformers">Transformers (Local PyTorch / CUDA)</option>
+                </optgroup>
               </select>
             </div>
 

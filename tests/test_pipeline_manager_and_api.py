@@ -45,6 +45,17 @@ def test_pipeline_config_build_command():
     assert "--qwen3_tts_xvec_only" in cmd
     assert "--qwen3_tts_language" in cmd and "en" in cmd
 
+    # Test Gemini selection
+    gemini_cfg = PipelineConfig(
+        stt_provider="parakeet-tdt",
+        llm_provider="gemini-flash",
+        tts_provider="qwen3",
+        port=8081,
+    )
+    gemini_cmd = manager.build_command(gemini_cfg)
+    assert "--llm_backend" in gemini_cmd and "chat-completions" in gemini_cmd
+    assert "--model_name" in gemini_cmd and "gemini-2.5-flash" in gemini_cmd
+
 
 def test_api_pipeline_status_and_control(client):
     manager = PipelineManager.get_instance()

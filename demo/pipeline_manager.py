@@ -25,7 +25,8 @@ logger = logging.getLogger("s2s.pipeline_manager")
 @dataclass
 class PipelineConfig:
     stt_provider: str = "parakeet-tdt"
-    llm_provider: str = "chat-completions"
+    llm_provider: str = "gemini-flash"
+    llm_model_name: Optional[str] = "gemini-2.5-flash"
     tts_provider: str = "qwen3"
     tts_model_name: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
     tts_backend: str = "torch"
@@ -103,15 +104,49 @@ class PipelineManager:
         venv_bin = self.workspace_root / ".venv" / "bin" / "speech-to-speech"
         executable = str(venv_bin) if venv_bin.is_file() else "speech-to-speech"
 
+        # Resolve LLM backend and model name
+        llm_backend = "chat-completions"
+        model_name = None
+
+        if config.llm_provider == "gemini-flash":
+            llm_backend = "chat-completions"
+            model_name = "gemini-2.5-flash"
+        elif config.llm_provider == "gemini-pro":
+            llm_backend = "chat-completions"
+            model_name = "gemini-2.0-flash"
+        elif config.llm_provider == "openai-mini":
+            llm_backend = "chat-completions"
+            model_name = "gpt-4o-mini"
+        elif config.llm_provider == "openai-gpt4o":
+            llm_backend = "chat-completions"
+            model_name = "gpt-4o"
+        elif config.llm_provider == "groq-llama":
+            llm_backend = "chat-completions"
+            model_name = "llama-3.3-70b-versatile"
+        elif config.llm_provider == "deepseek-chat":
+            llm_backend = "chat-completions"
+            model_name = "deepseek-chat"
+        elif config.llm_provider == "transformers":
+            llm_backend = "transformers"
+        elif config.llm_provider == "responses-api":
+            llm_backend = "responses-api"
+        elif config.llm_provider == "chat-completions":
+            llm_backend = "chat-completions"
+            if config.llm_model_name:
+                model_name = config.llm_model_name
+
         cmd = [
             executable,
             "serve",
             "--port", str(config.port),
             "--host", config.host,
             "--stt", config.stt_provider,
-            "--llm_backend", config.llm_provider,
+            "--llm_backend", llm_backend,
             "--tts", config.tts_provider,
         ]
+
+        if model_name:
+            cmd.extend(["--model_name", model_name])
 
         # Qwen3-specific arguments
         if config.tts_provider == "qwen3":
