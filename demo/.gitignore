@@ -20,3 +20,4 @@ deploy_replica.py
 
 vendor/
 .env
+uploads/

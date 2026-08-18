@@ -21,6 +21,8 @@ import { S2sRealtimeClient } from "./s2s-realtime-client.js";
 import { $, truncateError, DEBUG } from "./ui/dom.js";
 import { ChatView } from "./ui/chat.js";
 import { Account } from "./ui/account.js";
+import { BenchmarkController } from "./ui/benchmark.js";
+import { SetupController } from "./ui/setup.js";
 
 const DEFAULT_VOICE = "Aiden";
 const DEFAULT_INSTRUCTIONS = "You are a friendly voice assistant.";
@@ -1678,6 +1680,17 @@ setState("idle");
 chat.renderEmptyState();
 initGateArc();
 void fetchConfig();
+const benchmark = new BenchmarkController();
+const setupController = new SetupController({
+  onPipelineReady: async () => {
+    await fetchConfig();
+    console.log("[main] Pipeline ready. Direct URL is now:", pinnedUrl || settings.directUrl);
+  },
+  onPipelineStopped: async () => {
+    await teardown();
+    setState("idle");
+  },
+});
 // Start the webcam as soon as the user lands (camera tool defaults on), and
 // react to later permission changes (re-grant after a denial re-enables it).
 void autoStartCamera();
