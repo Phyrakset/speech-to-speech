@@ -1130,6 +1130,19 @@ restartBtn.addEventListener("click", async () => {
 circleBtn.addEventListener("click", async () => {
   try {
     if (currentState === "idle" || currentState === "error") {
+      await fetchConfig();
+      try {
+        const pipeRes = await fetch("/api/pipeline/status");
+        if (pipeRes.ok) {
+          const status = await pipeRes.json();
+          if (!status.running) {
+            setupController.openModal();
+            return;
+          }
+        }
+      } catch {
+        // continue if standalone deploy
+      }
       if (missingServerUrl()) { promptServerUrl(); return; }
       await doStart();
     }

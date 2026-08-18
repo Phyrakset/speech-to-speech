@@ -89,8 +89,8 @@ class PipelineManager:
                 "started_at": self.started_at,
                 "uptime_seconds": round(time.time() - self.started_at, 1) if running and self.started_at else 0,
                 "config": self.current_config.to_dict() if self.current_config else None,
-                "port": self.current_config.port if self.current_config else 8080,
-                "ws_url": f"ws://127.0.0.1:{self.current_config.port}/v1/realtime" if self.current_config else "ws://127.0.0.1:8080/v1/realtime",
+                "port": self.current_config.port if self.current_config else int(os.getenv("PIPELINE_PORT", "8081")),
+                "ws_url": f"ws://127.0.0.1:{self.current_config.port}/v1/realtime" if self.current_config else f"ws://127.0.0.1:{os.getenv('PIPELINE_PORT', '8081')}/v1/realtime",
                 "recent_logs": list(self.logs)[-20:],
             }
 

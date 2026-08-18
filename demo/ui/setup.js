@@ -92,13 +92,19 @@ export class SetupController {
     this.init();
   }
 
+  openModal() {
+    if (this.modal && !this.modal.open) {
+      this.modal.showModal();
+    }
+  }
+
   init() {
     this.loadProviders();
 
     // Open setup modal
     if (this.btnOpenModal) {
       this.btnOpenModal.addEventListener("click", () => {
-        if (this.modal) this.modal.showModal();
+        this.openModal();
       });
     }
 
