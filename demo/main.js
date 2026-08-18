@@ -1143,21 +1143,12 @@ restartBtn.addEventListener("click", async () => {
 circleBtn.addEventListener("click", async () => {
   try {
     if (currentState === "idle" || currentState === "error") {
-      await fetchConfig();
-      try {
-        const pipeRes = await fetch("/api/pipeline/status");
-        if (pipeRes.ok) {
-          const status = await pipeRes.json();
-          if (!status.running) {
-            setupController.openModal();
-            return;
-          }
-        }
-      } catch {
-        // continue if standalone deploy
-      }
+      const audioContext = createResumedAudioContext();
       if (missingServerUrl()) { promptServerUrl(); return; }
-      await doStart();
+      await doStart(audioContext);
+    } else if (LIVE_STATES.has(currentState) || currentState === "connecting") {
+      await teardown();
+      setState("idle");
     }
   } catch (err) {
     await handleStartError(err);
