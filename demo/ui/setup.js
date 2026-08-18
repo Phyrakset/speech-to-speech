@@ -92,13 +92,19 @@ export class SetupController {
     this.init();
   }
 
+  openModal() {
+    if (this.modal && !this.modal.open) {
+      this.modal.showModal();
+    }
+  }
+
   init() {
     this.loadProviders();
 
     // Open setup modal
     if (this.btnOpenModal) {
       this.btnOpenModal.addEventListener("click", () => {
-        if (this.modal) this.modal.showModal();
+        this.openModal();
       });
     }
 
@@ -209,16 +215,30 @@ export class SetupController {
       if (!res.ok) return;
       const data = await res.json();
 
+      // Apply configured .env defaults if available
+      const envDef = data.env_defaults;
+      if (envDef) {
+        if (this.sttSelect && envDef.stt_provider) this.sttSelect.value = envDef.stt_provider;
+        if (this.llmSelect && envDef.llm_provider) this.llmSelect.value = envDef.llm_provider;
+        if (this.ttsSelect && envDef.tts_provider) this.ttsSelect.value = envDef.tts_provider;
+        if (this.qwenModelSelect && envDef.tts_model) this.qwenModelSelect.value = envDef.tts_model;
+        if (this.langSelect && envDef.language) {
+          this.langSelect.value = envDef.language;
+          this.updateLanguageBadge();
+        }
+      }
+
       // Populate reference voice dropdown
       if (data.reference_files && data.reference_files.length > 0 && this.refVoiceSelect) {
         const current = this.refVoiceSelect.value;
+        const defaultRefName = envDef?.ref_audio_name || "khmer_bong_nika_sound.wav";
         this.refVoiceSelect.innerHTML = "";
         data.reference_files.forEach((/** @type {{ name: string, duration: number }} */ f) => {
           const opt = document.createElement("option");
           opt.value = f.name;
           opt.textContent = `${f.name} (${f.duration}s)`;
-          // Select khmer_bong_nika_sound.wav by default if present
-          if (f.name === "khmer_bong_nika_sound.wav" && !current) {
+          // Select default reference voice from .env if present
+          if (f.name === defaultRefName && !current) {
             opt.selected = true;
           }
           this.refVoiceSelect.appendChild(opt);

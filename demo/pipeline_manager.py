@@ -19,22 +19,34 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from speech_to_speech.utils.utils import load_dotenv_if_present
+
+# Ensure .env is loaded on startup
+load_dotenv_if_present()
+
 logger = logging.getLogger("s2s.pipeline_manager")
 
 
 @dataclass
 class PipelineConfig:
-    stt_provider: str = "parakeet-tdt"
-    llm_provider: str = "chat-completions"
-    tts_provider: str = "qwen3"
-    tts_model_name: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
-    tts_backend: str = "torch"
-    ref_audio_path: Optional[str] = None
+    stt_provider: str = field(default_factory=lambda: os.getenv("DEFAULT_STT_PROVIDER", "parakeet-tdt"))
+    llm_provider: str = field(default_factory=lambda: os.getenv("DEFAULT_LLM_PROVIDER", "gemini-flash"))
+    llm_model_name: Optional[str] = field(
+        default_factory=lambda: os.getenv("MODEL_NAME", os.getenv("DEFAULT_LLM_MODEL", "gemini-2.5-flash"))
+    )
+    tts_provider: str = field(default_factory=lambda: os.getenv("DEFAULT_TTS_PROVIDER", "qwen3"))
+    tts_model_name: str = field(
+        default_factory=lambda: os.getenv("DEFAULT_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+    )
+    tts_backend: str = field(default_factory=lambda: os.getenv("DEFAULT_TTS_BACKEND", "torch"))
+    ref_audio_path: Optional[str] = field(
+        default_factory=lambda: os.getenv("DEFAULT_REFERENCE_VOICE_PATH", None)
+    )
     ref_transcript: Optional[str] = None
     xvec_only: bool = True
-    language: str = "auto"
-    port: int = 8081
-    host: str = "0.0.0.0"
+    language: str = field(default_factory=lambda: os.getenv("DEFAULT_TTS_LANGUAGE", "auto"))
+    port: int = field(default_factory=lambda: int(os.getenv("PIPELINE_PORT", "8081")))
+    host: str = field(default_factory=lambda: os.getenv("PIPELINE_HOST", "0.0.0.0"))
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -77,8 +89,8 @@ class PipelineManager:
                 "started_at": self.started_at,
                 "uptime_seconds": round(time.time() - self.started_at, 1) if running and self.started_at else 0,
                 "config": self.current_config.to_dict() if self.current_config else None,
-                "port": self.current_config.port if self.current_config else 8080,
-                "ws_url": f"ws://127.0.0.1:{self.current_config.port}/v1/realtime" if self.current_config else "ws://127.0.0.1:8080/v1/realtime",
+                "port": self.current_config.port if self.current_config else int(os.getenv("PIPELINE_PORT", "8081")),
+                "ws_url": f"ws://127.0.0.1:{self.current_config.port}/v1/realtime" if self.current_config else f"ws://127.0.0.1:{os.getenv('PIPELINE_PORT', '8081')}/v1/realtime",
                 "recent_logs": list(self.logs)[-20:],
             }
 
@@ -103,15 +115,49 @@ class PipelineManager:
         venv_bin = self.workspace_root / ".venv" / "bin" / "speech-to-speech"
         executable = str(venv_bin) if venv_bin.is_file() else "speech-to-speech"
 
+        # Resolve LLM backend and model name
+        llm_backend = "chat-completions"
+        model_name = None
+
+        if config.llm_provider == "gemini-flash":
+            llm_backend = "chat-completions"
+            model_name = "gemini-2.5-flash"
+        elif config.llm_provider == "gemini-pro":
+            llm_backend = "chat-completions"
+            model_name = "gemini-2.0-flash"
+        elif config.llm_provider == "openai-mini":
+            llm_backend = "chat-completions"
+            model_name = "gpt-4o-mini"
+        elif config.llm_provider == "openai-gpt4o":
+            llm_backend = "chat-completions"
+            model_name = "gpt-4o"
+        elif config.llm_provider == "groq-llama":
+            llm_backend = "chat-completions"
+            model_name = "llama-3.3-70b-versatile"
+        elif config.llm_provider == "deepseek-chat":
+            llm_backend = "chat-completions"
+            model_name = "deepseek-chat"
+        elif config.llm_provider == "transformers":
+            llm_backend = "transformers"
+        elif config.llm_provider == "responses-api":
+            llm_backend = "responses-api"
+        elif config.llm_provider == "chat-completions":
+            llm_backend = "chat-completions"
+            if config.llm_model_name:
+                model_name = config.llm_model_name
+
         cmd = [
             executable,
             "serve",
             "--port", str(config.port),
             "--host", config.host,
             "--stt", config.stt_provider,
-            "--llm_backend", config.llm_provider,
+            "--llm_backend", llm_backend,
             "--tts", config.tts_provider,
         ]
+
+        if model_name:
+            cmd.extend(["--model_name", model_name])
 
         # Qwen3-specific arguments
         if config.tts_provider == "qwen3":

@@ -56,7 +56,9 @@ import limiter
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from starlette.websockets import WebSocket, WebSocketDisconnect
+import websockets
 
 from speech_to_speech.TTS.voice_cloning_bench import VoiceCloningService
 from pipeline_manager import PipelineManager, PipelineConfig
@@ -187,11 +189,12 @@ class SearchRequest(BaseModel):
 
 
 @app.get("/api/config")
-def config():
+def config(request: Request):
     """Client bootstrap config and pipeline status."""
     pipe_status = PipelineManager.get_instance().get_status()
-    # Default direct s2s url points to local pipeline if none pinned
-    effective_s2s_url = SPEECH_TO_SPEECH_URL or f"ws://127.0.0.1:{pipe_status['port']}/v1/realtime"
+    # Route websocket through same-origin proxy to support HTTPS and remote cloud port forwarding
+    scheme = "wss" if request.url.scheme == "https" else "ws"
+    effective_s2s_url = SPEECH_TO_SPEECH_URL or f"{scheme}://{request.url.netloc}/v1/realtime"
     return {
         "search": bool(SERPER_KEY),
         "lb": bool(LOAD_BALANCER_URL),
@@ -205,16 +208,62 @@ def config():
     }
 
 
+@app.websocket("/v1/realtime")
+@app.websocket("/ws/realtime")
+async def websocket_proxy(client_ws: WebSocket):
+    """Transparent bidirectional WebSocket proxy to the local speech-to-speech backend."""
+    await client_ws.accept()
+    pipe_status = PipelineManager.get_instance().get_status()
+    port = pipe_status.get("port", 8081)
+    target_url = f"ws://127.0.0.1:{port}/v1/realtime"
+
+    try:
+        async with websockets.connect(target_url, max_size=None) as server_ws:
+            async def client_to_server():
+                try:
+                    while True:
+                        msg = await client_ws.receive()
+                        if "text" in msg and msg["text"] is not None:
+                            await server_ws.send(msg["text"])
+                        elif "bytes" in msg and msg["bytes"] is not None:
+                            await server_ws.send(msg["bytes"])
+                        elif msg.get("type") == "websocket.disconnect":
+                            break
+                except (WebSocketDisconnect, asyncio.CancelledError):
+                    pass
+                except Exception as e:
+                    logger.debug("client_to_server error: %s", e)
+
+            async def server_to_client():
+                try:
+                    async for msg in server_ws:
+                        if isinstance(msg, str):
+                            await client_ws.send_text(msg)
+                        else:
+                            await client_ws.send_bytes(msg)
+                except (WebSocketDisconnect, asyncio.CancelledError):
+                    pass
+                except Exception as e:
+                    logger.debug("server_to_client error: %s", e)
+
+            c2s_task = asyncio.create_task(client_to_server())
+            s2c_task = asyncio.create_task(server_to_client())
+            done, pending = await asyncio.wait(
+                [c2s_task, s2c_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+    except Exception as e:
+        logger.warning("WebSocket proxy connection to %s failed: %s", target_url, e)
+        try:
+            await client_ws.close(code=1011, reason="Backend pipeline not reachable")
+        except Exception:
+            pass
+
+
 UPLOADS_DIR = Path(HERE) / "uploads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-
-# Copy default reference audio into uploads if available
-_DEFAULT_REF_SRC = Path(HERE).parent / "src" / "speech_to_speech" / "TTS" / "ref_audio.wav"
-if _DEFAULT_REF_SRC.is_file() and not (UPLOADS_DIR / "ref_audio.wav").is_file():
-    try:
-        shutil.copy(_DEFAULT_REF_SRC, UPLOADS_DIR / "ref_audio.wav")
-    except Exception as e:
-        logger.warning("Could not copy default ref_audio.wav: %s", e)
 
 # Auto-copy reference sounds from assets/reference_sound/
 _ASSETS_REF_DIR = Path(HERE).parent / "assets" / "reference_sound"
@@ -232,7 +281,7 @@ if _ASSETS_REF_DIR.is_dir():
 
 @app.get("/api/providers")
 def get_providers():
-    """Return available STT, LLM, and TTS providers and voice cloning options."""
+    """Return available STT, LLM, and TTS providers, configured defaults from .env, and voice options."""
     cloner = VoiceCloningService.get_instance()
     info = cloner.get_providers_info()
     # List available uploaded/preset reference files
@@ -248,20 +297,31 @@ def get_providers():
                 ref_files.append({"name": p.name, "duration": round(dur, 2)})
     info["reference_files"] = ref_files
     info["pipeline_status"] = PipelineManager.get_instance().get_status()
+    info["env_defaults"] = {
+        "stt_provider": os.getenv("DEFAULT_STT_PROVIDER", "parakeet-tdt"),
+        "llm_provider": os.getenv("DEFAULT_LLM_PROVIDER", "gemini-flash"),
+        "llm_model": os.getenv("MODEL_NAME", os.getenv("DEFAULT_LLM_MODEL", "gemini-2.5-flash")),
+        "tts_provider": os.getenv("DEFAULT_TTS_PROVIDER", "qwen3"),
+        "tts_model": os.getenv("DEFAULT_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"),
+        "tts_backend": os.getenv("DEFAULT_TTS_BACKEND", "torch"),
+        "ref_audio_name": os.getenv("DEFAULT_REFERENCE_VOICE", "khmer_bong_nika_sound.wav"),
+        "language": os.getenv("DEFAULT_TTS_LANGUAGE", "auto"),
+        "port": int(os.getenv("PIPELINE_PORT", "8081")),
+    }
     return info
 
 
 class PipelineStartRequest(BaseModel):
-    stt_provider: str = "parakeet-tdt"
-    llm_provider: str = "chat-completions"
-    tts_provider: str = "qwen3"
-    tts_model_name: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
-    tts_backend: str = "torch"
-    ref_audio_name: Optional[str] = "khmer_bong_nika_sound.wav"
+    stt_provider: str = Field(default_factory=lambda: os.getenv("DEFAULT_STT_PROVIDER", "parakeet-tdt"))
+    llm_provider: str = Field(default_factory=lambda: os.getenv("DEFAULT_LLM_PROVIDER", "gemini-flash"))
+    tts_provider: str = Field(default_factory=lambda: os.getenv("DEFAULT_TTS_PROVIDER", "qwen3"))
+    tts_model_name: str = Field(default_factory=lambda: os.getenv("DEFAULT_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"))
+    tts_backend: str = Field(default_factory=lambda: os.getenv("DEFAULT_TTS_BACKEND", "torch"))
+    ref_audio_name: Optional[str] = Field(default_factory=lambda: os.getenv("DEFAULT_REFERENCE_VOICE", "khmer_bong_nika_sound.wav"))
     ref_transcript: Optional[str] = None
     xvec_only: bool = True
-    language: str = "auto"
-    port: int = 8081
+    language: str = Field(default_factory=lambda: os.getenv("DEFAULT_TTS_LANGUAGE", "auto"))
+    port: int = Field(default_factory=lambda: int(os.getenv("PIPELINE_PORT", "8081")))
 
 
 @app.post("/api/pipeline/start")
