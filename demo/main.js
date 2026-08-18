@@ -228,6 +228,8 @@ const aboutClose = $("#about-close");
 
 /** @type {HTMLButtonElement} */
 const toolsBtn = $("#tools-btn");
+/** @type {HTMLButtonElement} */
+const camQuickBtn = $("#cam-quick-btn");
 /** @type {HTMLDialogElement} */
 const toolsModal = $("#tools-modal");
 /** @type {HTMLButtonElement} */
@@ -613,6 +615,10 @@ function syncToolsUi() {
   toolWebSwitch.disabled = !avail;
   toolWebRow.classList.toggle("disabled", !avail);
   toolCamSwitch.checked = toolsEnabled.camera_snapshot;
+  if (camQuickBtn) {
+    camQuickBtn.classList.toggle("active-tool-btn", toolsEnabled.camera_snapshot);
+    camQuickBtn.title = toolsEnabled.camera_snapshot ? "Webcam Active (Click to disable)" : "Toggle Webcam / Camera";
+  }
 
   if (serverSearchKey) {
     // Key lives server-side: show it as configured, never expose it.
@@ -628,6 +634,13 @@ function syncToolsUi() {
       ? "Using your key — stored in this browser only."
       : "No server key configured. Add your own Serper key to enable web search.";
   }
+}
+
+if (camQuickBtn) {
+  camQuickBtn.addEventListener("click", () => {
+    toolCamSwitch.checked = !toolCamSwitch.checked;
+    toolCamSwitch.dispatchEvent(new Event("change"));
+  });
 }
 
 toolsBtn.addEventListener("click", () => { syncToolsUi(); toolsModal.showModal(); });
