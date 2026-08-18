@@ -57,6 +57,8 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, Response, Uploa
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.websockets import WebSocket, WebSocketDisconnect
+import websockets
 
 from speech_to_speech.TTS.voice_cloning_bench import VoiceCloningService
 from pipeline_manager import PipelineManager, PipelineConfig
@@ -187,11 +189,12 @@ class SearchRequest(BaseModel):
 
 
 @app.get("/api/config")
-def config():
+def config(request: Request):
     """Client bootstrap config and pipeline status."""
     pipe_status = PipelineManager.get_instance().get_status()
-    # Default direct s2s url points to local pipeline if none pinned
-    effective_s2s_url = SPEECH_TO_SPEECH_URL or f"ws://127.0.0.1:{pipe_status['port']}/v1/realtime"
+    # Route websocket through same-origin proxy to support HTTPS and remote cloud port forwarding
+    scheme = "wss" if request.url.scheme == "https" else "ws"
+    effective_s2s_url = SPEECH_TO_SPEECH_URL or f"{scheme}://{request.url.netloc}/v1/realtime"
     return {
         "search": bool(SERPER_KEY),
         "lb": bool(LOAD_BALANCER_URL),
@@ -203,6 +206,60 @@ def config():
         "auth": AUTH_ENABLED,
         "pipeline": pipe_status,
     }
+
+
+@app.websocket("/v1/realtime")
+@app.websocket("/ws/realtime")
+async def websocket_proxy(client_ws: WebSocket):
+    """Transparent bidirectional WebSocket proxy to the local speech-to-speech backend."""
+    await client_ws.accept()
+    pipe_status = PipelineManager.get_instance().get_status()
+    port = pipe_status.get("port", 8081)
+    target_url = f"ws://127.0.0.1:{port}/v1/realtime"
+
+    try:
+        async with websockets.connect(target_url, max_size=None) as server_ws:
+            async def client_to_server():
+                try:
+                    while True:
+                        msg = await client_ws.receive()
+                        if "text" in msg and msg["text"] is not None:
+                            await server_ws.send(msg["text"])
+                        elif "bytes" in msg and msg["bytes"] is not None:
+                            await server_ws.send(msg["bytes"])
+                        elif msg.get("type") == "websocket.disconnect":
+                            break
+                except (WebSocketDisconnect, asyncio.CancelledError):
+                    pass
+                except Exception as e:
+                    logger.debug("client_to_server error: %s", e)
+
+            async def server_to_client():
+                try:
+                    async for msg in server_ws:
+                        if isinstance(msg, str):
+                            await client_ws.send_text(msg)
+                        else:
+                            await client_ws.send_bytes(msg)
+                except (WebSocketDisconnect, asyncio.CancelledError):
+                    pass
+                except Exception as e:
+                    logger.debug("server_to_client error: %s", e)
+
+            c2s_task = asyncio.create_task(client_to_server())
+            s2c_task = asyncio.create_task(server_to_client())
+            done, pending = await asyncio.wait(
+                [c2s_task, s2c_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for t in pending:
+                t.cancel()
+    except Exception as e:
+        logger.warning("WebSocket proxy connection to %s failed: %s", target_url, e)
+        try:
+            await client_ws.close(code=1011, reason="Backend pipeline not reachable")
+        except Exception:
+            pass
 
 
 UPLOADS_DIR = Path(HERE) / "uploads"
