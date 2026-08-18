@@ -19,23 +19,34 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from speech_to_speech.utils.utils import load_dotenv_if_present
+
+# Ensure .env is loaded on startup
+load_dotenv_if_present()
+
 logger = logging.getLogger("s2s.pipeline_manager")
 
 
 @dataclass
 class PipelineConfig:
-    stt_provider: str = "parakeet-tdt"
-    llm_provider: str = "gemini-flash"
-    llm_model_name: Optional[str] = "gemini-2.5-flash"
-    tts_provider: str = "qwen3"
-    tts_model_name: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
-    tts_backend: str = "torch"
-    ref_audio_path: Optional[str] = None
+    stt_provider: str = field(default_factory=lambda: os.getenv("DEFAULT_STT_PROVIDER", "parakeet-tdt"))
+    llm_provider: str = field(default_factory=lambda: os.getenv("DEFAULT_LLM_PROVIDER", "gemini-flash"))
+    llm_model_name: Optional[str] = field(
+        default_factory=lambda: os.getenv("MODEL_NAME", os.getenv("DEFAULT_LLM_MODEL", "gemini-2.5-flash"))
+    )
+    tts_provider: str = field(default_factory=lambda: os.getenv("DEFAULT_TTS_PROVIDER", "qwen3"))
+    tts_model_name: str = field(
+        default_factory=lambda: os.getenv("DEFAULT_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base")
+    )
+    tts_backend: str = field(default_factory=lambda: os.getenv("DEFAULT_TTS_BACKEND", "torch"))
+    ref_audio_path: Optional[str] = field(
+        default_factory=lambda: os.getenv("DEFAULT_REFERENCE_VOICE_PATH", None)
+    )
     ref_transcript: Optional[str] = None
     xvec_only: bool = True
-    language: str = "auto"
-    port: int = 8081
-    host: str = "0.0.0.0"
+    language: str = field(default_factory=lambda: os.getenv("DEFAULT_TTS_LANGUAGE", "auto"))
+    port: int = field(default_factory=lambda: int(os.getenv("PIPELINE_PORT", "8081")))
+    host: str = field(default_factory=lambda: os.getenv("PIPELINE_HOST", "0.0.0.0"))
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

@@ -56,7 +56,7 @@ import limiter
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from speech_to_speech.TTS.voice_cloning_bench import VoiceCloningService
 from pipeline_manager import PipelineManager, PipelineConfig
@@ -232,7 +232,7 @@ if _ASSETS_REF_DIR.is_dir():
 
 @app.get("/api/providers")
 def get_providers():
-    """Return available STT, LLM, and TTS providers and voice cloning options."""
+    """Return available STT, LLM, and TTS providers, configured defaults from .env, and voice options."""
     cloner = VoiceCloningService.get_instance()
     info = cloner.get_providers_info()
     # List available uploaded/preset reference files
@@ -248,20 +248,31 @@ def get_providers():
                 ref_files.append({"name": p.name, "duration": round(dur, 2)})
     info["reference_files"] = ref_files
     info["pipeline_status"] = PipelineManager.get_instance().get_status()
+    info["env_defaults"] = {
+        "stt_provider": os.getenv("DEFAULT_STT_PROVIDER", "parakeet-tdt"),
+        "llm_provider": os.getenv("DEFAULT_LLM_PROVIDER", "gemini-flash"),
+        "llm_model": os.getenv("MODEL_NAME", os.getenv("DEFAULT_LLM_MODEL", "gemini-2.5-flash")),
+        "tts_provider": os.getenv("DEFAULT_TTS_PROVIDER", "qwen3"),
+        "tts_model": os.getenv("DEFAULT_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"),
+        "tts_backend": os.getenv("DEFAULT_TTS_BACKEND", "torch"),
+        "ref_audio_name": os.getenv("DEFAULT_REFERENCE_VOICE", "khmer_bong_nika_sound.wav"),
+        "language": os.getenv("DEFAULT_TTS_LANGUAGE", "auto"),
+        "port": int(os.getenv("PIPELINE_PORT", "8081")),
+    }
     return info
 
 
 class PipelineStartRequest(BaseModel):
-    stt_provider: str = "parakeet-tdt"
-    llm_provider: str = "chat-completions"
-    tts_provider: str = "qwen3"
-    tts_model_name: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
-    tts_backend: str = "torch"
-    ref_audio_name: Optional[str] = "khmer_bong_nika_sound.wav"
+    stt_provider: str = Field(default_factory=lambda: os.getenv("DEFAULT_STT_PROVIDER", "parakeet-tdt"))
+    llm_provider: str = Field(default_factory=lambda: os.getenv("DEFAULT_LLM_PROVIDER", "gemini-flash"))
+    tts_provider: str = Field(default_factory=lambda: os.getenv("DEFAULT_TTS_PROVIDER", "qwen3"))
+    tts_model_name: str = Field(default_factory=lambda: os.getenv("DEFAULT_TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-1.7B-Base"))
+    tts_backend: str = Field(default_factory=lambda: os.getenv("DEFAULT_TTS_BACKEND", "torch"))
+    ref_audio_name: Optional[str] = Field(default_factory=lambda: os.getenv("DEFAULT_REFERENCE_VOICE", "khmer_bong_nika_sound.wav"))
     ref_transcript: Optional[str] = None
     xvec_only: bool = True
-    language: str = "auto"
-    port: int = 8081
+    language: str = Field(default_factory=lambda: os.getenv("DEFAULT_TTS_LANGUAGE", "auto"))
+    port: int = Field(default_factory=lambda: int(os.getenv("PIPELINE_PORT", "8081")))
 
 
 @app.post("/api/pipeline/start")
