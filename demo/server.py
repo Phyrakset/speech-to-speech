@@ -45,15 +45,21 @@ import asyncio
 import json
 import logging
 import os
+import shutil
+from pathlib import Path
+from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 
 import auth
 import httpx
 import limiter
-from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+from speech_to_speech.TTS.voice_cloning_bench import VoiceCloningService
+from pipeline_manager import PipelineManager, PipelineConfig
 
 logger = logging.getLogger("s2s.search")
 
@@ -136,6 +142,25 @@ LB_USER_AGENT = "speech-to-speech-demo"
 
 app = FastAPI(title="s2s-demo")
 
+
+@app.get("/vendor/openai-realtime-agents.umd.js", include_in_schema=False)
+def agents_sdk_bundle():
+    """Serve the exact npm-pinned browser bundle without committing build output."""
+    bundled = os.path.join(HERE, "vendor", "openai-realtime-agents.umd.js")
+    installed = os.path.join(
+        HERE,
+        "node_modules",
+        "@openai",
+        "agents-realtime",
+        "dist",
+        "bundle",
+        "openai-realtime-agents.umd.js",
+    )
+    path = bundled if os.path.isfile(bundled) else installed
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=503, detail="Run npm ci in demo/")
+    return FileResponse(path, media_type="text/javascript")
+
 # Wire HF OAuth before the app serves (no-op unless the OAuth env is present).
 # Sign-in only matters when we're metering (prod Space), so gate it on that.
 AUTH_ENABLED = LIMITER_ENABLED and auth.attach(app)
@@ -144,49 +169,267 @@ AUTH_ENABLED = LIMITER_ENABLED and auth.attach(app)
 @app.on_event("startup")
 async def _startup():
     """Stand up the usage DB and a periodic sweeper — metered (prod Space) only."""
-    if not LIMITER_ENABLED:
-        return
-    limiter.init()
-    asyncio.create_task(_sweeper())
+    if LIMITER_ENABLED:
+        await asyncio.to_thread(limiter.start)
 
 
-async def _sweeper():
-    while True:
-        await asyncio.sleep(limiter.REAP_AFTER_SEC)
-        try:
-            await asyncio.to_thread(limiter.sweep)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("usage sweep failed: %r", exc)
+@app.on_event("shutdown")
+def _shutdown():
+    """Tear down limiter and background pipeline subprocess."""
+    if LIMITER_ENABLED:
+        limiter.stop()
+    PipelineManager.get_instance().stop()
 
 
 class SearchRequest(BaseModel):
     query: str
-    # Optional user-supplied key (fallback when the deploy has no server key).
-    # Used for this request only; never stored.
-    key: str | None = None
+    key: Optional[str] = None
 
 
 @app.get("/api/config")
 def config():
-    """Client bootstrap: whether web search is available, whether the deploy runs
-    behind a load balancer (so the browser uses the /api/session proxy + limiter),
-    whether HF sign-in is available, and whether the user may instead set a direct
-    s2s server URL. The LB address itself is intentionally NOT included."""
+    """Client bootstrap config and pipeline status."""
+    pipe_status = PipelineManager.get_instance().get_status()
+    # Default direct s2s url points to local pipeline if none pinned
+    effective_s2s_url = SPEECH_TO_SPEECH_URL or f"ws://127.0.0.1:{pipe_status['port']}/v1/realtime"
     return {
         "search": bool(SERPER_KEY),
         "lb": bool(LOAD_BALANCER_URL),
         "allowDirect": not LOAD_BALANCER_URL,
-        # Deploy-pinned direct s2s URL (empty when unset). Not a secret: the
-        # browser dials it itself, and Settings shows it locked.
-        "s2sUrl": SPEECH_TO_SPEECH_URL,
-        # WebRTC transport availability: the /api/calls proxy only forwards to
-        # the env-pinned URL (never a client-supplied one), so the toggle is
-        # offered exactly when that URL exists.
+        "s2sUrl": effective_s2s_url,
         "rtc": bool(SPEECH_TO_SPEECH_URL),
         "iceServers": RTC_ICE_SERVERS,
         "startupGreeting": STARTUP_GREETING,
         "auth": AUTH_ENABLED,
+        "pipeline": pipe_status,
     }
+
+
+UPLOADS_DIR = Path(HERE) / "uploads"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+# Copy default reference audio into uploads if available
+_DEFAULT_REF_SRC = Path(HERE).parent / "src" / "speech_to_speech" / "TTS" / "ref_audio.wav"
+if _DEFAULT_REF_SRC.is_file() and not (UPLOADS_DIR / "ref_audio.wav").is_file():
+    try:
+        shutil.copy(_DEFAULT_REF_SRC, UPLOADS_DIR / "ref_audio.wav")
+    except Exception as e:
+        logger.warning("Could not copy default ref_audio.wav: %s", e)
+
+# Auto-copy reference sounds from assets/reference_sound/
+_ASSETS_REF_DIR = Path(HERE).parent / "assets" / "reference_sound"
+if _ASSETS_REF_DIR.is_dir():
+    for ext in ("*.wav", "*.mp3", "*.ogg", "*.flac"):
+        for ref_f in _ASSETS_REF_DIR.glob(ext):
+            dest_f = UPLOADS_DIR / ref_f.name
+            if not dest_f.is_file():
+                try:
+                    shutil.copy(ref_f, dest_f)
+                    logger.info("Copied asset reference voice: %s", ref_f.name)
+                except Exception as e:
+                    logger.warning("Could not copy reference file %s: %s", ref_f.name, e)
+
+
+@app.get("/api/providers")
+def get_providers():
+    """Return available STT, LLM, and TTS providers and voice cloning options."""
+    cloner = VoiceCloningService.get_instance()
+    info = cloner.get_providers_info()
+    # List available uploaded/preset reference files
+    ref_files = []
+    seen = set()
+    for ext in ("*.wav", "*.mp3", "*.ogg", "*.flac"):
+        for p in sorted(UPLOADS_DIR.glob(ext)):
+            if p.name in seen:
+                continue
+            seen.add(p.name)
+            is_valid, dur, _ = cloner.validate_reference_audio(p)
+            if is_valid:
+                ref_files.append({"name": p.name, "duration": round(dur, 2)})
+    info["reference_files"] = ref_files
+    info["pipeline_status"] = PipelineManager.get_instance().get_status()
+    return info
+
+
+class PipelineStartRequest(BaseModel):
+    stt_provider: str = "parakeet-tdt"
+    llm_provider: str = "chat-completions"
+    tts_provider: str = "qwen3"
+    tts_model_name: str = "Qwen/Qwen3-TTS-12Hz-1.7B-Base"
+    tts_backend: str = "torch"
+    ref_audio_name: Optional[str] = "khmer_bong_nika_sound.wav"
+    ref_transcript: Optional[str] = None
+    xvec_only: bool = True
+    language: str = "auto"
+    port: int = 8081
+
+
+@app.post("/api/pipeline/start")
+def start_pipeline(req: PipelineStartRequest):
+    """Launch the speech-to-speech serve subprocess with user-configured providers and voice."""
+    ref_audio_path = None
+    if req.ref_audio_name:
+        candidate = UPLOADS_DIR / req.ref_audio_name
+        if candidate.is_file():
+            ref_audio_path = str(candidate)
+        else:
+            # Check assets directly
+            asset_candidate = _ASSETS_REF_DIR / req.ref_audio_name
+            if asset_candidate.is_file():
+                ref_audio_path = str(asset_candidate)
+
+    cfg = PipelineConfig(
+        stt_provider=req.stt_provider,
+        llm_provider=req.llm_provider,
+        tts_provider=req.tts_provider,
+        tts_model_name=req.tts_model_name,
+        tts_backend=req.tts_backend,
+        ref_audio_path=ref_audio_path,
+        ref_transcript=req.ref_transcript,
+        xvec_only=req.xvec_only,
+        language=req.language,
+        port=req.port,
+    )
+
+    manager = PipelineManager.get_instance()
+    res = manager.start(cfg)
+    if not res.get("ok"):
+        raise HTTPException(status_code=500, detail=res.get("error", "Failed to start pipeline"))
+    return res
+
+
+@app.post("/api/pipeline/stop")
+def stop_pipeline():
+    """Stop the background speech-to-speech pipeline."""
+    manager = PipelineManager.get_instance()
+    return manager.stop()
+
+
+@app.get("/api/pipeline/status")
+def pipeline_status():
+    """Get current status of the background speech-to-speech pipeline."""
+    return PipelineManager.get_instance().get_status()
+
+
+@app.get("/api/pipeline/logs")
+def pipeline_logs():
+    """Get recent logs from the speech-to-speech pipeline."""
+    manager = PipelineManager.get_instance()
+    status = manager.get_status()
+    return {
+        "running": status["running"],
+        "logs": status["recent_logs"],
+    }
+
+
+@app.post("/api/tts/upload-reference")
+async def upload_reference_audio(file: UploadFile = File(...)):
+    """Upload a reference audio file for voice cloning."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file selected.")
+
+    # Sanitize filename
+    clean_name = Path(file.filename).name.replace(" ", "_")
+    if not (clean_name.endswith(".wav") or clean_name.endswith(".mp3") or clean_name.endswith(".ogg") or clean_name.endswith(".flac")):
+        raise HTTPException(status_code=400, detail="Only audio files (.wav, .mp3, .ogg, .flac) are supported.")
+
+    dest_path = UPLOADS_DIR / clean_name
+    try:
+        with dest_path.open("wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save uploaded file: {e}")
+
+    cloner = VoiceCloningService.get_instance()
+    is_valid, dur, err_msg = cloner.validate_reference_audio(dest_path)
+    if not is_valid:
+        dest_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Invalid audio file: {err_msg}")
+
+    return {
+        "ok": True,
+        "filename": clean_name,
+        "duration": round(dur, 2),
+        "url": f"/api/tts/reference-audio/{clean_name}",
+    }
+
+
+@app.get("/api/tts/reference-audio/{filename}")
+def get_reference_audio(filename: str):
+    """Serve uploaded reference audio for playback."""
+    clean_name = Path(filename).name
+    path = UPLOADS_DIR / clean_name
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Reference audio file not found.")
+    media_type = "audio/wav" if clean_name.endswith(".wav") else "audio/mpeg"
+    return FileResponse(str(path), media_type=media_type)
+
+
+@app.post("/api/tts/clone")
+async def clone_voice(
+    text: str = Form(...),
+    reference_filename: Optional[str] = Form(None),
+    reference_file: Optional[UploadFile] = File(None),
+    reference_transcript: Optional[str] = Form(None),
+    cloning_mode: str = Form("x_vector_only"),
+    language: str = Form("en"),
+    model_name: str = Form("Qwen/Qwen3-TTS-12Hz-1.7B-Base"),
+):
+    """
+    Synthesize speech using Qwen3-TTS Base voice cloning and return benchmark metrics.
+    """
+    clean_text = (text or "").strip()
+    if not clean_text:
+        raise HTTPException(status_code=400, detail="Text cannot be empty.")
+
+    cloner = VoiceCloningService.get_instance()
+
+    # Determine reference audio path
+    ref_audio_path: Optional[Path] = None
+    if reference_file is not None and reference_file.filename:
+        clean_name = Path(reference_file.filename).name.replace(" ", "_")
+        dest_path = UPLOADS_DIR / clean_name
+        with dest_path.open("wb") as buffer:
+            shutil.copyfileobj(reference_file.file, buffer)
+        ref_audio_path = dest_path
+    elif reference_filename:
+        clean_name = Path(reference_filename).name
+        candidate = UPLOADS_DIR / clean_name
+        if candidate.is_file():
+            ref_audio_path = candidate
+        else:
+            # Check TTS dir fallback
+            fallback = Path(HERE).parent / "src" / "speech_to_speech" / "TTS" / clean_name
+            if fallback.is_file():
+                ref_audio_path = fallback
+
+    if ref_audio_path is None or not ref_audio_path.is_file():
+        raise HTTPException(
+            status_code=400,
+            detail="Reference audio is required. Please upload or select a reference voice file.",
+        )
+
+    is_xvec = (cloning_mode == "x_vector_only")
+    if not is_xvec and not (reference_transcript and reference_transcript.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="Reference transcript is required when Reference Transcript cloning mode is selected.",
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            cloner.synthesize_voice_clone,
+            text=clean_text,
+            ref_audio_path=ref_audio_path,
+            ref_text=reference_transcript,
+            xvec_only=is_xvec,
+            language=language,
+            model_name=model_name,
+        )
+        return result.to_dict()
+    except Exception as exc:
+        logger.error("Voice cloning synthesis failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.get("/api/me")
@@ -195,8 +438,8 @@ async def me(request: Request):
     sets the anonymous tracking cookie when first seen."""
     if not LIMITER_ENABLED:
         return {"enabled": False}
-    view = auth.user_view(request)
     tier, keys, set_cookie = auth.resolve_identity(request)
+    view = auth.user_view(request, tier=tier)
     unlimited = limiter.budget_for(tier) is None
     rem = None if unlimited else await asyncio.to_thread(limiter.remaining, keys, tier)
     out = {
@@ -596,3 +839,12 @@ async def session_end(request: Request):
 # Static front-end. Registered last so the /api routes win. `html=True` serves
 # index.html at "/". The repo is public anyway, so serving the dir is fine.
 app.mount("/", StaticFiles(directory=HERE, html=True), name="static")
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", "8080"))
+    host = os.environ.get("HOST", "0.0.0.0")
+    print(f"Starting Speech-to-Speech Demo & Voice Cloning Benchmark on http://{host}:{port}...")
+    uvicorn.run("server:app", host=host, port=port, reload=False, app_dir=HERE)

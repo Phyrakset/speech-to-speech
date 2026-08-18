@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="style.css?v=3.2" />
   </head>
   <!--
     `booting` disables transitions/animations until the first paint commits.
@@ -56,6 +56,14 @@
           <div id="account" class="account" hidden></div>
           <button id="about-btn-m" class="icon-btn about-btn-mobile" title="About this space" aria-label="About this space">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          </button>
+          <div id="topbar-pipeline-badge" class="pipeline-running-pill" hidden>
+            <span class="pipeline-status-dot"></span>
+            <span class="pipeline-badge-text">Pipeline: Running</span>
+            <button id="reconfigure-btn" class="reconfigure-btn" type="button" title="Stop pipeline & reconfigure">Reconfigure</button>
+          </div>
+          <button id="benchmark-btn" class="icon-btn benchmark-topbar-btn" title="Voice Cloning & Benchmark" aria-label="Voice Cloning & Benchmark">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
           </button>
           <button id="tools-btn" class="icon-btn" title="Tools" aria-label="Tools">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
@@ -132,6 +140,21 @@
 
         <p id="circle-caption" class="circle-caption" role="status">Tap to start</p>
         <p id="circle-subcaption" class="circle-subcaption" hidden></p>
+
+        <!-- Active Voice & Model Studio Bar -->
+        <div id="active-voice-bar" class="active-voice-bar">
+          <div class="active-voice-left">
+            <span class="active-voice-icon">🎤</span>
+            <span class="active-voice-label">Voice:</span>
+            <strong id="active-voice-name" class="active-voice-name">khmer_bong_nika_sound.wav</strong>
+            <span class="active-voice-sep">·</span>
+            <span id="active-model-name" class="active-model-name">Qwen3-TTS 1.7B Base</span>
+          </div>
+          <button id="open-setup-modal-btn" class="active-voice-edit-btn" type="button">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c0 .66.39 1.25 1 1.51H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>Change Voice / Models</span>
+          </button>
+        </div>
 
         <div id="queue-actions" class="queue-actions" hidden>
           <button id="join-queue-btn" class="join-queue-btn" type="button" hidden>
@@ -403,6 +426,418 @@
       </div>
     </dialog>
 
+    <dialog id="benchmark-modal" class="modal benchmark-modal">
+      <div class="modal-content benchmark-content">
+        <header class="modal-header">
+          <div class="modal-title-wrap">
+            <h2>Voice Cloning & Benchmark</h2>
+            <span class="badge badge-accent">Qwen3-TTS 1.7B Base</span>
+          </div>
+          <button id="benchmark-close" class="icon-btn" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </header>
+
+        <!-- Step Indicator -->
+        <div class="wizard-steps" id="wizard-steps">
+          <div class="wizard-step active" data-step="1">
+            <span class="wizard-step-num">1</span>
+            <span class="wizard-step-label">Model & Voice</span>
+          </div>
+          <div class="wizard-step-line"></div>
+          <div class="wizard-step" data-step="2">
+            <span class="wizard-step-num">2</span>
+            <span class="wizard-step-label">Configure</span>
+          </div>
+          <div class="wizard-step-line"></div>
+          <div class="wizard-step" data-step="3">
+            <span class="wizard-step-num">3</span>
+            <span class="wizard-step-label">Results</span>
+          </div>
+        </div>
+
+        <div class="benchmark-body">
+          <!-- ═══ STEP 1: Model & Voice Selection ═══ -->
+          <div id="wizard-panel-1" class="wizard-panel active">
+            <div class="card bench-card">
+              <h3 class="bench-section-title">Choose Your TTS Model</h3>
+              <div class="model-cards-grid">
+                <label class="model-card selected" data-model="qwen3-base">
+                  <input type="radio" name="tts-model" value="qwen3-base" checked />
+                  <div class="model-card-inner">
+                    <span class="model-card-icon">🎤</span>
+                    <strong>Qwen3-TTS Base</strong>
+                    <span class="model-card-desc">1.7B · Arbitrary Voice Cloning</span>
+                    <span class="badge badge-accent">Recommended</span>
+                  </div>
+                </label>
+                <label class="model-card" data-model="qwen3-custom">
+                  <input type="radio" name="tts-model" value="qwen3-custom" />
+                  <div class="model-card-inner">
+                    <span class="model-card-icon">🗣️</span>
+                    <strong>Qwen3-TTS CustomVoice</strong>
+                    <span class="model-card-desc">1.7B · Preset Speakers Only</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <div class="card bench-card" id="voice-upload-card">
+              <div class="bench-section-head">
+                <h3 class="bench-section-title">Select Reference Voice</h3>
+                <span class="sub-badge">Your voice to clone</span>
+              </div>
+              <p class="field-hint">Upload a short voice recording (.wav / .mp3), or pick an existing reference below. This is the voice that will be cloned.</p>
+
+              <div class="upload-control-row">
+                <label class="custom-file-upload">
+                  <input id="ref-file-input" type="file" accept="audio/wav,audio/mp3,audio/ogg,audio/flac,.wav,.mp3,.ogg,.flac" />
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span>Upload Audio</span>
+                </label>
+                <select id="ref-audio-select" class="ref-audio-select">
+                  <option value="ref_audio.wav" selected>ref_audio.wav (Built-in Reference)</option>
+                </select>
+              </div>
+
+              <div class="ref-audio-preview-card">
+                <div class="ref-preview-header">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span>Preview Reference Voice</span>
+                  <span id="ref-audio-status" class="ref-audio-badge">ref_audio.wav</span>
+                </div>
+                <audio id="ref-audio-player" controls preload="auto" src="/api/tts/reference-audio/ref_audio.wav"></audio>
+              </div>
+            </div>
+
+            <div class="wizard-nav">
+              <div></div>
+              <button type="button" id="wizard-next-1" class="btn primary btn-wizard-next" disabled>
+                <span>Configure Voice Cloning</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- ═══ STEP 2: Configure Synthesis ═══ -->
+          <div id="wizard-panel-2" class="wizard-panel">
+            <div class="card bench-card">
+              <h3 class="bench-section-title">Cloning Mode</h3>
+              <div class="clone-mode-options">
+                <label class="radio-option">
+                  <input type="radio" name="cloning-mode" value="x_vector_only" checked />
+                  <span class="radio-indicator"></span>
+                  <span class="radio-desc">
+                    <strong>Speaker / X-Vector Only</strong>
+                    <small>Extracts speaker embedding directly from audio. No transcript needed. Best for cross-lingual synthesis.</small>
+                  </span>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="cloning-mode" value="reference_transcript" />
+                  <span class="radio-indicator"></span>
+                  <span class="radio-desc">
+                    <strong>Reference Transcript (ICL)</strong>
+                    <small>In-Context Learning conditioned on reference text + acoustic tokens. Requires exact transcript.</small>
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div id="ref-transcript-container" class="card bench-card" style="display: none;">
+              <h3 class="bench-section-title">Reference Audio Transcript</h3>
+              <textarea id="ref-transcript-input" rows="2" placeholder="Enter the exact transcript of what is spoken in the reference audio..."></textarea>
+            </div>
+
+            <div class="card bench-card">
+              <div class="bench-section-head">
+                <h3 class="bench-section-title">Target Language</h3>
+                <span id="lang-status-badge" class="badge badge-success">Officially Supported</span>
+              </div>
+              <select id="target-language-select">
+                <optgroup label="Officially Supported by Qwen3-TTS">
+                  <option value="en" selected>English</option>
+                  <option value="zh">Chinese</option>
+                  <option value="ja">Japanese</option>
+                  <option value="ko">Korean</option>
+                  <option value="de">German</option>
+                  <option value="fr">French</option>
+                  <option value="ru">Russian</option>
+                  <option value="pt">Portuguese</option>
+                  <option value="es">Spanish</option>
+                  <option value="it">Italian</option>
+                  <option value="auto">Auto Detect</option>
+                </optgroup>
+                <optgroup label="Experimental / Unsupported">
+                  <option value="km">Khmer (Experimental)</option>
+                  <option value="vi">Vietnamese (Experimental)</option>
+                  <option value="th">Thai (Experimental)</option>
+                  <option value="id">Indonesian (Experimental)</option>
+                  <option value="ar">Arabic (Experimental)</option>
+                  <option value="hi">Hindi (Experimental)</option>
+                </optgroup>
+              </select>
+              <small id="lang-explanation" class="field-hint">English is officially supported by Qwen3-TTS. Experimental languages evaluate cross-lingual speaker preservation.</small>
+            </div>
+
+            <div class="card bench-card">
+              <div class="bench-section-head">
+                <h3 class="bench-section-title">Text to Synthesize</h3>
+                <div class="quick-sample-chips">
+                  <button type="button" class="sample-chip" data-text="Hello, welcome to your AI interview. I am glad to meet you today." data-lang="en">English</button>
+                  <button type="button" class="sample-chip" data-text="សួស្ដី សូមស្វាគមន៍មកកាន់ការសម្ភាសន៍ការងាររបស់អ្នកនៅថ្ងៃនេះ។" data-lang="km">Khmer</button>
+                </div>
+              </div>
+              <textarea id="tts-input-text" rows="3" placeholder="Enter text to synthesize with the cloned reference voice...">Hello, welcome to your AI interview. I am glad to meet you today.</textarea>
+            </div>
+
+            <div class="wizard-nav">
+              <button type="button" id="wizard-back-2" class="btn btn-wizard-back">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                <span>Back</span>
+              </button>
+              <button id="generate-speech-btn" type="button" class="btn primary btn-generate">
+                <span class="btn-text">Generate Cloned Speech</span>
+                <span class="btn-spinner" hidden></span>
+              </button>
+            </div>
+          </div>
+
+          <!-- ═══ STEP 3: Results ═══ -->
+          <div id="wizard-panel-3" class="wizard-panel">
+            <!-- Error Alert Card -->
+            <div id="bench-error-card" class="alert-box alert-error" hidden>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <span id="bench-error-msg"></span>
+            </div>
+
+            <!-- Benchmark Results Card -->
+            <div id="benchmark-results-card" class="card bench-card results-card" hidden>
+              <div class="bench-section-head">
+                <h3 class="bench-section-title">Voice Comparison</h3>
+                <span id="rtf-badge" class="badge badge-accent">RTF: --</span>
+              </div>
+
+              <div class="audio-comparison-grid">
+                <div class="audio-compare-card">
+                  <span class="audio-compare-title">1. Reference Voice</span>
+                  <audio id="result-ref-player" controls preload="auto"></audio>
+                  <span id="result-ref-meta" class="audio-compare-meta">Duration: --</span>
+                </div>
+                <div class="audio-compare-card audio-compare-card-active">
+                  <span class="audio-compare-title">2. Generated Cloned Voice</span>
+                  <audio id="result-gen-player" controls autoplay></audio>
+                  <span id="result-gen-meta" class="audio-compare-meta">Duration: --</span>
+                </div>
+              </div>
+
+              <h4 class="bench-section-title" style="margin-top: 6px;">Benchmark Telemetry</h4>
+              <div class="metrics-grid">
+                <div class="metric-cell">
+                  <span class="metric-lbl">Model</span>
+                  <span id="metric-model" class="metric-val">Qwen3-TTS-12Hz-1.7B-Base</span>
+                </div>
+                <div class="metric-cell">
+                  <span class="metric-lbl">Generation Latency</span>
+                  <span id="metric-latency" class="metric-val">--</span>
+                </div>
+                <div class="metric-cell">
+                  <span class="metric-lbl">Generated Audio Duration</span>
+                  <span id="metric-duration" class="metric-val">--</span>
+                </div>
+                <div class="metric-cell">
+                  <span class="metric-lbl">Real-Time Factor (RTF)</span>
+                  <span id="metric-rtf" class="metric-val">--</span>
+                </div>
+                <div class="metric-cell">
+                  <span class="metric-lbl">GPU VRAM Allocated</span>
+                  <span id="metric-vram" class="metric-val">--</span>
+                </div>
+                <div class="metric-cell">
+                  <span class="metric-lbl">Compute Hardware</span>
+                  <span id="metric-device" class="metric-val">Tesla T4 (CUDA)</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="wizard-nav">
+              <button type="button" id="wizard-back-3" class="btn btn-wizard-back">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                <span>Reconfigure</span>
+              </button>
+              <button type="button" id="wizard-new-test" class="btn primary btn-wizard-next">
+                <span>New Test</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- ═══ Pipeline & Voice Studio Modal ═══ -->
+    <dialog id="setup-modal" class="modal setup-modal">
+      <div class="modal-content setup-modal-content">
+        <header class="modal-header">
+          <div class="modal-title-wrap">
+            <h2>Voice & Pipeline Studio</h2>
+            <span class="badge badge-accent">Local GPU Engine</span>
+          </div>
+          <button id="setup-modal-close" class="icon-btn" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </header>
+
+        <div class="setup-modal-body">
+          <div class="setup-grid">
+            <!-- STT Selection -->
+            <div class="setup-field-card">
+              <span class="setup-field-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                1. Speech Recognition (STT)
+              </span>
+              <select id="setup-stt-provider">
+                <option value="parakeet-tdt" selected>Parakeet-TDT (Recommended)</option>
+                <option value="whisper">Whisper (Local PyTorch)</option>
+                <option value="faster-whisper">Faster Whisper (CTranslate2)</option>
+                <option value="paraformer">Paraformer</option>
+                <option value="none">Audio-in LLM (No STT)</option>
+              </select>
+            </div>
+
+            <!-- LLM Selection -->
+            <div class="setup-field-card">
+              <span class="setup-field-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                2. Language Model (LLM)
+              </span>
+              <select id="setup-llm-provider">
+                <option value="chat-completions" selected>Chat Completions (OpenAI / Cerebras)</option>
+                <option value="responses-api">Responses API</option>
+                <option value="transformers">Transformers (Local)</option>
+              </select>
+            </div>
+
+            <!-- TTS Provider Selection -->
+            <div class="setup-field-card">
+              <span class="setup-field-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                3. TTS Engine
+              </span>
+              <select id="setup-tts-provider">
+                <option value="qwen3" selected>Qwen3-TTS (Voice Cloning)</option>
+                <option value="pocket">Pocket TTS</option>
+                <option value="kokoro">Kokoro TTS</option>
+                <option value="chatTTS">ChatTTS</option>
+                <option value="facebookMMS">Facebook MMS</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Qwen3 Voice Cloning Configuration Card -->
+          <div id="setup-qwen-options" class="card bench-card">
+            <div class="bench-section-head">
+              <h3 class="bench-section-title">Voice Cloning Settings</h3>
+              <span class="sub-badge">Qwen3-TTS 1.7B Base</span>
+            </div>
+
+            <div class="qwen-config-grid">
+              <div class="field">
+                <span>Model Variant</span>
+                <select id="setup-qwen-model">
+                  <option value="Qwen/Qwen3-TTS-12Hz-1.7B-Base" selected>Qwen3-TTS 1.7B Base (Arbitrary Voice Cloning)</option>
+                  <option value="Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice">Qwen3-TTS 1.7B CustomVoice (Preset Identities)</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <div class="field-head">
+                  <span>Language</span>
+                  <span id="setup-lang-badge" class="badge badge-success">Official</span>
+                </div>
+                <select id="setup-language-select">
+                  <option value="auto" selected>Auto Detect</option>
+                  <option value="en">English (Official)</option>
+                  <option value="km">Khmer (Experimental Voice Cloning)</option>
+                  <option value="zh">Chinese (Official)</option>
+                  <option value="ja">Japanese (Official)</option>
+                  <option value="ko">Korean (Official)</option>
+                  <option value="fr">French (Official)</option>
+                  <option value="de">German (Official)</option>
+                  <option value="es">Spanish (Official)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Voice selection group -->
+            <div id="setup-voice-selection-group" class="setup-voice-group">
+              <div class="field-head">
+                <span class="field-label-strong">Reference Voice to Clone:</span>
+                <span id="setup-voice-status" class="sub-badge">khmer_bong_nika_sound.wav</span>
+              </div>
+              <div class="voice-select-row">
+                <select id="setup-ref-voice" class="setup-ref-voice-select">
+                  <option value="khmer_bong_nika_sound.wav" selected>khmer_bong_nika_sound.wav (Bong Nika)</option>
+                  <option value="ref_audio.wav">ref_audio.wav (Default Reference)</option>
+                </select>
+                <label class="custom-file-upload">
+                  <input id="setup-file-upload" type="file" accept="audio/wav,audio/mp3,audio/ogg,audio/flac" />
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span>Upload .wav</span>
+                </label>
+              </div>
+
+              <div class="setup-audio-preview">
+                <span class="preview-lbl">Preview Voice:</span>
+                <audio id="setup-voice-preview" controls preload="auto" src="/api/tts/reference-audio/khmer_bong_nika_sound.wav"></audio>
+              </div>
+
+              <div class="setup-mode-row">
+                <label class="radio-option">
+                  <input type="radio" name="setup-cloning-mode" value="x_vector_only" checked />
+                  <span class="radio-indicator"></span>
+                  <span class="radio-desc">
+                    <strong>X-Vector Speaker Embedding (<code>x_vector_only=True</code>)</strong>
+                    <small>No transcript required. Clean start & cross-lingual voice preservation.</small>
+                  </span>
+                </label>
+                <label class="radio-option">
+                  <input type="radio" name="setup-cloning-mode" value="reference_transcript" />
+                  <span class="radio-indicator"></span>
+                  <span class="radio-desc">
+                    <strong>Reference Transcript (ICL)</strong>
+                    <small>In-Context Learning conditioned on exact audio transcript.</small>
+                  </span>
+                </label>
+              </div>
+
+              <div id="setup-transcript-container" class="field" style="display: none; margin-top: 8px;">
+                <span>Reference Audio Transcript</span>
+                <textarea id="setup-transcript-input" rows="2" placeholder="Enter transcript of reference voice..."></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- Launch Button & Status Logs -->
+          <div class="setup-action-row">
+            <button id="start-pipeline-btn" type="button" class="btn primary btn-launch">
+              <span class="btn-text">Apply & Start Pipeline</span>
+              <span class="btn-spinner" hidden></span>
+            </button>
+          </div>
+
+          <div id="setup-status-card" class="setup-status-card" hidden>
+            <div class="status-indicator-row">
+              <span class="status-pulse-dot"></span>
+              <span id="setup-status-msg" class="status-msg">Initializing background pipeline...</span>
+            </div>
+            <pre id="setup-log-console" class="setup-log-console"></pre>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="vendor/openai-realtime-agents.umd.js"></script>
     <script type="module" src="main.js"></script>
   </body>
 </html>
+

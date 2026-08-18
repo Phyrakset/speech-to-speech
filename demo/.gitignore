@@ -18,4 +18,6 @@ venv/
 # Local-only replica deploy script (never tracked)
 deploy_replica.py
 
+vendor/
 .env
+uploads/
