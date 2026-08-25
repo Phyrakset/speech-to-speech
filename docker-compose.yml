@@ -54,6 +54,8 @@ services:
       - system
       - --init_chat_prompt
       - "You are a helpful assistant"
+      - --qwen3_tts_backend
+      - torch
     expose:
       - 8765/tcp
     ports:
